@@ -1,5 +1,7 @@
 import boto3
 
+import json
+
 dynamodb = boto3.resource('dynamodb')
 table = dynamodb.Table('visitor_count')
 
@@ -13,7 +15,9 @@ def lambda_handler(event, context):
     )
     visitor_count = response['Attributes']['count']
     
+    
+
     return {
         'statusCode': 200,
-        'body': str(visitor_count)
+        'body': json.dumps({'count': int(visitor_count)})
     }
