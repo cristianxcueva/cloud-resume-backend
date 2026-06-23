@@ -1,0 +1,10 @@
+.terraform/
+terraform.tfstate
+terraform.tfstate.backup
+*.tfstate
+*.tfstate.backup
+__pycache__/
+*.pyc
+lambda_function.zip
+response.json
+.DS_Store
