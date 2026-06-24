@@ -293,6 +293,11 @@ resource "aws_apigatewayv2_stage" "visitor_count_stage" {
   api_id      = aws_apigatewayv2_api.visitor_count_api.id
   name        = "$default"
   auto_deploy = true
+
+  default_route_settings {
+    throttling_burst_limit = 10
+    throttling_rate_limit  = 5
+  }
 } 
 
 # Resource-based permission, NOT the same as the execution role above - this
@@ -305,6 +310,24 @@ resource "aws_lambda_permission" "api_gateway_invoke" {
   function_name = aws_lambda_function.visitor_count_lambda.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.visitor_count_api.execution_arn}/*/*"
+}
+
+
+# Billing alarm - Cloudwatch metric
+resource "aws_cloudwatch_metric_alarm" "billing_alarm" {
+  alarm_name          = "billing_alarm"
+  alarm_description   = "Alerts when AWS billing exceeds $10"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = "EstimatedCharges"
+  namespace           = "AWS/Billing"
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 10
+  
+  dimensions = {
+    Currency = "USD"
+  }
 }
 
 # Dedicated user for the BACKEND repo's automated pipeline - deliberately separate
@@ -433,3 +456,4 @@ resource "aws_iam_user_policy" "github_frontend_scoped" {
 ]
   })
 }
+
