@@ -326,6 +326,16 @@ resource "aws_iam_user_policy" "github_iam_scoped" {
           "iam:GetRole",
           "iam:DeleteRole",
           "iam:TagRole",
+          "iam:GetUser",
+          "iam:CreateUser",
+          "iam:DeleteUser",
+          "iam:TagUser",
+          "iam:ListAttachedUserPolicies",
+          "iam:AttachUserPolicy",
+          "iam:DetachUserPolicy",
+          "iam:PutUserPolicy",
+          "iam:GetUserPolicy",
+          "iam:DeleteUserPolicy",
           #dynamodb policy actions
           "iam:PutRolePolicy",
           "iam:GetRolePolicy",
@@ -336,7 +346,10 @@ resource "aws_iam_user_policy" "github_iam_scoped" {
           "iam:ListAttachedRolePolicies",
           "iam:ListRolePolicies" ,
         ]
-        Resource = aws_iam_role.lambda_role.arn
+        Resource = [
+          aws_iam_role.lambda_role.arn,
+          aws_iam_user.github_actions_user.arn
+        ]
       }
     ]
   })
