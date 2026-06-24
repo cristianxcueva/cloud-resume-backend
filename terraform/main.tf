@@ -268,3 +268,76 @@ resource "aws_lambda_permission" "api_gateway_invoke" {
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.visitor_count_api.execution_arn}/*/*"
 }
+
+#iam user credentials for github actions
+resource "aws_iam_user" "github_actions_user" {
+  name = "github-actions-user"
+}
+
+#policy attachment for github actions user
+
+resource "aws_iam_user_policy_attachment" "github_s3" {
+  user       = aws_iam_user.github_actions_user.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+}
+
+resource "aws_iam_user_policy_attachment" "github_dynamodb" {
+  user       = aws_iam_user.github_actions_user.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
+}
+
+resource "aws_iam_user_policy_attachment" "github_lambda" {
+  user       = aws_iam_user.github_actions_user.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSLambda_FullAccess"
+}
+
+resource "aws_iam_user_policy_attachment" "github_apigateway" {
+  user       = aws_iam_user.github_actions_user.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonAPIGatewayAdministrator"
+}
+
+resource "aws_iam_user_policy_attachment" "github_cloudfront" {
+  user       = aws_iam_user.github_actions_user.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudFrontFullAccess"
+}
+
+resource "aws_iam_user_policy_attachment" "github_route53" {
+  user       = aws_iam_user.github_actions_user.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonRoute53FullAccess"
+}
+
+resource "aws_iam_user_policy_attachment" "github_acm" {
+  user       = aws_iam_user.github_actions_user.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSCertificateManagerFullAccess"
+}
+
+#iam user policy 
+resource "aws_iam_user_policy" "github_iam_scoped" {
+  name = "github-iam-scoped"
+  user = aws_iam_user.github_actions_user.name
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = [
+          # IAM actions
+          "iam:CreateRole",
+          "iam:GetRole",
+          "iam:DeleteRole",
+          "iam:TagRole",
+          #dynamodb policy actions
+          "iam:PutRolePolicy",
+          "iam:GetRolePolicy",
+          "iam:DeleteRolePolicy",
+          #cloudwatch policy actions
+          "iam:AttachRolePolicy",
+          "iam:DetachRolePolicy",
+          "iam:ListAttachedRolePolicies",
+          "iam:ListRolePolicies" ,
+        ]
+        Resource = aws_iam_role.lambda_role.arn
+      }
+    ]
+  })
+}
