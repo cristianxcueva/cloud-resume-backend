@@ -374,6 +374,10 @@ resource "aws_iam_user_policy_attachment" "github_acm" {
   user       = aws_iam_user.github_actions_user.name
   policy_arn = "arn:aws:iam::aws:policy/AWSCertificateManagerFullAccess"
 }
+resource "aws_iam_user_policy_attachment" "github_cloudwatch" {
+  user       = aws_iam_user.github_actions_user.name
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchFullAccess"
+}
 
 # Custom-scoped instead of IAMFullAccess - that managed policy is disproportionately
 # powerful (can act on ANY IAM resource account-wide, including future ones).
