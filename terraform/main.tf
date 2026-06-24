@@ -1,4 +1,6 @@
 terraform {
+  # State stored remotely in S3 (not locally) so both my machine and GitHub Actions
+  # read/write the same state - required for CI/CD to work without conflicts
   backend "s3" {
     bucket = "cristianxcueva-terraform-state"
     key    = "cloud-resume-challenge/terraform.tfstate"
@@ -16,13 +18,14 @@ provider "aws" {
   region = "us-east-1"
 }
 
-#s3 bucket
+# S3 bucket
 resource "aws_s3_bucket" "my_bucket" {
 
   bucket = "cristianxcueva.dev"
 }       
 
-#s3 bucket public access block
+# All 4 set to false (not true like a typical private bucket) - static website
+# hosting requires public read access, the opposite of normal best practice
 resource "aws_s3_bucket_public_access_block" "my_bucket_public_access_block" {
 
   bucket = aws_s3_bucket.my_bucket.id
@@ -33,7 +36,7 @@ resource "aws_s3_bucket_public_access_block" "my_bucket_public_access_block" {
   restrict_public_buckets = false
 }       
 
-#aws s3 bucket website configuration
+# AWS s3 bucket website configuration
 resource "aws_s3_bucket_website_configuration" "my_bucket_website" {
   bucket = aws_s3_bucket.my_bucket.id   
     index_document {
@@ -45,7 +48,8 @@ resource "aws_s3_bucket_website_configuration" "my_bucket_website" {
     }
 }
 
-#aws s3 bucket policy
+# depends_on is required - without it Terraform sometimes tries to apply this
+# policy before the public access block finishes, causing a 403 (race condition)
 resource "aws_s3_bucket_policy" "my_bucket_policy" {
   bucket = aws_s3_bucket.my_bucket.id
     depends_on = [aws_s3_bucket_public_access_block.my_bucket_public_access_block]
@@ -62,17 +66,20 @@ resource "aws_s3_bucket_policy" "my_bucket_policy" {
     })
 }
 
-#aws acm certificate
+# Must stay in us-east-1 regardless of where other resources live - CloudFront
+# only reads ACM certs from this specific region, no exceptions
 resource "aws_acm_certificate" "my_certificate" {
   domain_name       = "cristianxcueva.dev"
   validation_method = "DNS"
 }
-#aws route53 zone
+# Imported, not created from scratch - Route 53 auto-creates this zone when a
+# domain is registered, so creating a new one here would just cause a duplicate
 resource "aws_route53_zone" "main" {
   name = "cristianxcueva.dev"
 }
 
-#aws route53 record
+# for_each handles this dynamically since ACM could return multiple validation
+# challenges depending on the cert request - never hardcode just one record
 resource "aws_route53_record" "cert_validation" {
   for_each = {
     for dvo in aws_acm_certificate.my_certificate.domain_validation_options : dvo.domain_name => {
@@ -89,7 +96,8 @@ resource "aws_route53_record" "cert_validation" {
   ttl     = 60
 }
 
-#aws acm certificate validation
+# References the validation resource (not the cert directly) so Terraform waits
+# for ACM to actually confirm domain ownership before CloudFront tries to use it
 resource "aws_acm_certificate_validation" "my_certificate_validation" {
   certificate_arn         = aws_acm_certificate.my_certificate.arn
   validation_record_fqdns = [for record in aws_route53_record.cert_validation : record.fqdn]
@@ -101,6 +109,10 @@ resource "aws_cloudfront_distribution" "my_distribution" {
   enabled             = true
   is_ipv6_enabled     = true
   default_root_object = "index.html"
+
+  # Origin is the S3 *website* endpoint, not the regular bucket endpoint - website
+  # endpoints only speak HTTP and don't support OAC, so this must be a custom
+  # origin (http-only) rather than a native S3 origin
 
   origin {
     domain_name = aws_s3_bucket_website_configuration.my_bucket_website.website_endpoint
@@ -116,6 +128,8 @@ resource "aws_cloudfront_distribution" "my_distribution" {
 
   default_cache_behavior {
     target_origin_id       = "s3-origin"
+    # Forces HTTPS even if someone types http:// - the actual security happens
+    # here, not on the origin side, since CloudFront-to-S3 stays http-only
     viewer_protocol_policy = "redirect-to-https"
 
     allowed_methods = ["GET", "HEAD"]
@@ -137,12 +151,15 @@ resource "aws_cloudfront_distribution" "my_distribution" {
 
   viewer_certificate {
     acm_certificate_arn            = aws_acm_certificate_validation.my_certificate_validation.certificate_arn
+    # sni-only is always correct for modern browsers - the alternative (vip,
+    # a dedicated IP) costs ~$600/month and is only needed for ancient clients
     ssl_support_method             = "sni-only"
     minimum_protocol_version       = "TLSv1.2_2021"
   }
 }
 
-#aws route53 record for cloudfront distribution alias
+# Alias record (not CNAME) because CloudFront's IP changes dynamically and
+# CNAMEs can't be used on apex/root domains anyway - this is the only valid option
 resource "aws_route53_record" "cloudfront_alias" {
   zone_id = aws_route53_zone.main.zone_id
   name    = "cristianxcueva.dev"
@@ -150,12 +167,15 @@ resource "aws_route53_record" "cloudfront_alias" {
 
   alias {
     name                   = aws_cloudfront_distribution.my_distribution.domain_name
+    # Fixed AWS value, same for every CloudFront distribution in every account
     zone_id                = "Z2FDTNDATAQYW2"
     evaluate_target_health = false
   }
 }
 
-#dynamodb table for visitor count
+# Schema-less by design - only the partition key is declared here. The actual
+# "count" attribute doesn't exist in the table definition at all; Lambda creates
+# it dynamically the first time update_item() runs
 resource "aws_dynamodb_table" "visitor_count_table" {
   name         = "visitor_count"
   billing_mode = "PAY_PER_REQUEST"
@@ -166,7 +186,8 @@ resource "aws_dynamodb_table" "visitor_count_table" {
   }
 }
 
-#iam role for lambda function
+# Execution role for Lambda - no instance profile needed here (unlike EC2),
+# Lambda attaches a role directly via the role argument
 resource "aws_iam_role" "lambda_role" {
   name = "lambda_role"
   assume_role_policy = jsonencode({
@@ -183,7 +204,8 @@ resource "aws_iam_role" "lambda_role" {
   })
 }
 
-#dynamodb policy for lambda function
+# Least privilege: only GetItem and UpdateItem - no DeleteItem or CreateTable,
+# since this function never needs to do either
 resource "aws_iam_role_policy" "dynamodb_policy" {
   name = "dynamodb_policy"
   role = aws_iam_role.lambda_role.id
@@ -202,22 +224,27 @@ resource "aws_iam_role_policy" "dynamodb_policy" {
   })
 }
 
-#aws cloudwatch role policy for lambda function
+# AWS-managed policy, not authored here - this just attaches CloudWatch logging
+# permissions that already exist, rather than writing custom JSON for something
+# nearly every Lambda function needs
 resource "aws_iam_role_policy_attachment" "lambda_logging" {
   role       = aws_iam_role.lambda_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-#lambda function for visitor count zip
+# Zips the Python file automatically on every terraform apply - output_base64sha256
+# is what lets Terraform detect code changes and trigger a redeploy
 data "archive_file" "lambda_zip" {
   type        = "zip"
   source_file  = "${path.module}/../lambda/lambda_function.py"
   output_path = "${path.module}/../lambda/lambda_function.zip"
 }
 
-#aws lambda function for visitor count
+# AWS lambda function for visitor count
 resource "aws_lambda_function" "visitor_count_lambda" {
   function_name = "visitor_count_lambda"
+  # role needs .arn here, not .name (different requirement than the policy
+  # attachments above, which use .name) - easy to mix up
   role          = aws_iam_role.lambda_role.arn
   handler       = "lambda_function.lambda_handler"
   runtime       = "python3.12"
@@ -225,11 +252,12 @@ resource "aws_lambda_function" "visitor_count_lambda" {
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
 } 
 
-#aws api gateway http api for visitor count
+# AWS api gateway http api for visitor count
 resource "aws_apigatewayv2_api" "visitor_count_api" {
   name          = "visitor_count_api"
   protocol_type = "HTTP"
-
+# Restricted to my exact domain, not a wildcard - least privilege applied to
+# CORS, prevents other websites from embedding calls to this API
   cors_configuration {
     allow_origins = ["https://cristianxcueva.dev"]
     allow_methods = ["GET"]
@@ -237,30 +265,40 @@ resource "aws_apigatewayv2_api" "visitor_count_api" {
   }
 }
 
-#aws api gateway integration for visitor count
+# AWS api gateway integration for visitor count
 resource "aws_apigatewayv2_integration" "visitor_count_integration" {
   api_id           = aws_apigatewayv2_api.visitor_count_api.id
   integration_type = "AWS_PROXY"
+  # invoke_arn, not .arn - a different attribute specifically formatted for
+  # invocation, not the function's general identifying ARN
   integration_uri  = aws_lambda_function.visitor_count_lambda.invoke_arn
+  # Lambda proxy integrations always use POST internally, regardless of what
+  # method the public-facing route actually uses
   integration_method = "POST"
   payload_format_version = "2.0"
 } 
 
-#aws api gateway route for visitor count
+# AWS api gateway route for visitor count
 resource "aws_apigatewayv2_route" "visitor_count_route" {
   api_id    = aws_apigatewayv2_api.visitor_count_api.id
   route_key = "GET /visitor-count"
 target    = "integrations/${aws_apigatewayv2_integration.visitor_count_integration.id}"
 } 
 
-#aws api gateway stage for visitor count
+# AWS api gateway stage for visitor count
+# $default avoids needing a stage prefix in the URL (no /prod/ or /staging/) -
+# fine here since this project has no need for multiple environments
+
 resource "aws_apigatewayv2_stage" "visitor_count_stage" {
   api_id      = aws_apigatewayv2_api.visitor_count_api.id
   name        = "$default"
   auto_deploy = true
 } 
 
-#aws lambda permission for api gateway
+# Resource-based permission, NOT the same as the execution role above - this
+# controls who can INVOKE Lambda from outside; the execution role controls what
+# Lambda can do once it's already running. Two separate directions of trust
+
 resource "aws_lambda_permission" "api_gateway_invoke" {
   statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
@@ -269,12 +307,15 @@ resource "aws_lambda_permission" "api_gateway_invoke" {
   source_arn    = "${aws_apigatewayv2_api.visitor_count_api.execution_arn}/*/*"
 }
 
-#iam user credentials for github actions
+# Dedicated user for the BACKEND repo's automated pipeline - deliberately separate
+# from my own personal CLI credentials (iamadmin-general), since an unsupervised
+# automated system warrants a tighter-scoped credential than a human using it directly
 resource "aws_iam_user" "github_actions_user" {
   name = "github-actions-user"
 }
 
-#policy attachment for github actions user
+# middle ground: broad managed policies per-service rather than full
+# admin access, but also not a fully custom minimal policy for every single action
 
 resource "aws_iam_user_policy_attachment" "github_s3" {
   user       = aws_iam_user.github_actions_user.name
@@ -311,7 +352,12 @@ resource "aws_iam_user_policy_attachment" "github_acm" {
   policy_arn = "arn:aws:iam::aws:policy/AWSCertificateManagerFullAccess"
 }
 
-#iam user policy 
+# Custom-scoped instead of IAMFullAccess - that managed policy is disproportionately
+# powerful (can act on ANY IAM resource account-wide, including future ones).
+# This restricts both the actions AND, critically, the Resource list to exactly
+# the two IAM entities this project actually manages (lambda_role + this user itself -
+# the user needs self-management permissions like GetUser, which is what originally
+# broke the first deploy attempt)
 resource "aws_iam_user_policy" "github_iam_scoped" {
   name = "github-iam-scoped"
   user = aws_iam_user.github_actions_user.name
@@ -352,5 +398,37 @@ resource "aws_iam_user_policy" "github_iam_scoped" {
         ]
       }
     ]
+  })
+}
+
+# Separate, even MORE narrowly-scoped user for the FRONTEND repo - only ever
+# needs S3 sync + CloudFront invalidation, nothing else this project does
+resource "aws_iam_user" "github_actions_frontend_user" {
+  name = "github-actions-frontend-user"
+}
+
+# Two separate statements (not one combined) - each action set needs to pair
+# with its own matching resource type; mixing S3 actions against a CloudFront
+# ARN (or vice versa) in one statement is semantically meaningless
+resource "aws_iam_user_policy" "github_frontend_scoped" {
+  user       = aws_iam_user.github_actions_frontend_user.name
+  name = "github-frontend-scoped"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+  {
+    Effect   = "Allow"
+    Action   = ["s3:ListBucket", "s3:GetObject", "s3:PutObject"]
+    Resource = [
+      "arn:aws:s3:::cristianxcueva.dev",
+      "arn:aws:s3:::cristianxcueva.dev/*"
+    ]
+  },
+  {
+    Effect   = "Allow"
+    Action   = ["cloudfront:CreateInvalidation", "cloudfront:GetInvalidation"]
+    Resource = aws_cloudfront_distribution.my_distribution.arn
+  }
+]
   })
 }
