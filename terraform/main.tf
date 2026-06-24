@@ -394,7 +394,8 @@ resource "aws_iam_user_policy" "github_iam_scoped" {
         ]
         Resource = [
           aws_iam_role.lambda_role.arn,
-          aws_iam_user.github_actions_user.arn
+          aws_iam_user.github_actions_user.arn,
+          aws_iam_user.github_actions_frontend_user.arn
         ]
       }
     ]
