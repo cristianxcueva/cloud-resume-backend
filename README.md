@@ -103,10 +103,12 @@ No SNS notification on the billing alarm, it has to be checked manually in the c
 
 ## What I Learned
 
+- Provisioned a full serverless architecture end to end: DynamoDB, Lambda, API Gateway, IAM, all wired together and managed entirely through Terraform
+- Built and debugged a real CI/CD pipeline with GitHub Actions, including credential scoping and the specific ways automated deployments fail differently than running commands by hand
+- Set up Terraform's S3 remote backend, including the bootstrap problem: the bucket holding state can't be created by the same configuration that depends on it
 - DynamoDB's atomic update expressions, and why a read-then-write approach has a race condition that `update_item()` with `if_not_exists()` avoids
 - The difference between a Lambda execution role (what Lambda can do) and a resource-based permission (who can invoke Lambda), two separate directions of trust
 - Why CI/CD credentials need their own, narrower IAM identity instead of reusing personal admin credentials, and why that identity's permissions have to grow every time the infrastructure it manages grows
-- Setting up Terraform's S3 backend, including the bootstrap problem: the bucket holding state can't be created by the same configuration that depends on it
 - Debugging CI/CD failures with nothing but logs, no local terminal to fall back on
 
 ---
