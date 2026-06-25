@@ -1,6 +1,6 @@
 terraform {
   # State lives in S3, not locally, so my machine and GitHub Actions read the
-  # same state. CI/CD breaks without this.
+  # same state. CI/CD would break without this.
   backend "s3" {
     bucket = "cristianxcueva-terraform-state"
     key    = "cloud-resume-challenge/terraform.tfstate"
