@@ -1,5 +1,4 @@
-
-# Cloud Resume Challenge - Backend
+# Cloud Resume Challenge: Backend
 
 Serverless backend for my cloud resume's visitor counter, plus all the infrastructure that hosts the resume itself. Built for the [Cloud Resume Challenge](https://cloudresumechallenge.dev/).
 
@@ -37,9 +36,9 @@ Browser's JS -> API Gateway -> Lambda -> DynamoDB
 
 ## What's in This Repo
 
-- `terraform/` - every AWS resource for this project, including the S3 bucket and CloudFront distribution that serve the frontend
-- `lambda/` - the visitor counter function and its tests
-- `.github/workflows/` - the CI/CD pipeline: runs tests, then deploys via Terraform if they pass
+- `terraform/`: every AWS resource for this project, including the S3 bucket and CloudFront distribution that serve the frontend
+- `lambda/`: the visitor counter function and its tests
+- `.github/workflows/`: the CI/CD pipeline. Runs tests, then deploys via Terraform if they pass
 
 The frontend repo holds the actual website files and a separate, lighter pipeline that syncs them to S3. It never touches Terraform. The S3 bucket and CloudFront distribution it deploys into already exist, created here.
 
@@ -67,7 +66,7 @@ DynamoDB returns numbers as Python's `Decimal` type, not a plain `int`. `json.du
 
 ## Security Design
 
-- RDS-equivalent thinking applied to a serverless stack: the S3 bucket backing the website is public on purpose (static hosting needs that), but CloudFront sits in front with Origin Access Control, and CloudFront is the only thing that ever talks to S3 over HTTPS to the outside world
+- The S3 bucket backing the website is public on purpose, static hosting needs that. CloudFront sits in front with Origin Access Control, so CloudFront is the only thing that ever pulls from S3 directly
 - CORS on the API Gateway is locked to `https://cristianxcueva.dev` specifically, not a wildcard, so no other site can call this API from a browser
 - Lambda's execution role only has `GetItem` and `UpdateItem` on the one DynamoDB table it needs, nothing broader
 - API Gateway throttling caps requests at 5/second sustained, 10 burst. A real visitor generates one request. A script trying to run up a bill gets capped before it ever reaches Lambda or DynamoDB, and capped requests aren't billed
@@ -120,5 +119,5 @@ This started as one repository, built milestone by milestone through the officia
 
 ## Author
 
-Cristian Cueva - IT Support Analyst transitioning into Cloud Engineering
+Cristian Cueva, IT Support Analyst transitioning into Cloud Engineering
 [GitHub](https://github.com/cristianxcueva)
